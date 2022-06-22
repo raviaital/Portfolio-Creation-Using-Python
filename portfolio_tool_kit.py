@@ -1,4 +1,5 @@
 import pandas as pd
+import scipy.stats
 
 def get_ffme_returns():
     """
@@ -58,3 +59,15 @@ def kurtosis(r):
     sigma_r = r.std(ddof=0)
     exp = (demeaned_r**4).mean()
     return exp/sigma_r**4
+
+def is_normal(r, level=0.01):
+    """
+    Applies the Jarque-Bera test to determine if a Series is normal or not
+    Test is applied at the 1% level by default
+    Returns True if the hypothesis of normality is accepted, False otherwise
+    """
+    if isinstance(r, pd.DataFrame):
+        return r.aggregate(is_normal)
+    else:
+        stat, p_value = scipy.stats.jarque_bera(r)
+        return p_value > level
