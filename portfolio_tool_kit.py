@@ -119,3 +119,113 @@ def var_gaussian(r, level=5, modified=False):
         k = kurtosis(r)
         z = z + (z**2 -1)*s/6 + (z**3 - 3*z)*(k-3)/24 - (2*z**3 - 5*z)*(s**2)/36
     return -(r.mean() + z*r.std(ddof=0))
+
+def get_ind_returns():
+    """
+    Reads Ken French dataset of the returns of 30 different industry portfolios into a dataframe and strips the column names
+    """
+    ind = pd.read_csv("data/ind30_m_vw_rets.csv", header=0, index_col=0)/100
+    ind.index = pd.to_datetime(ind.index, format="%Y%m").to_period('M')
+    ind.columns = ind.columns.str.strip()
+    return ind
+
+def annualized_ret(r, periods_per_year):
+    """
+    Annualizes a set of returns
+    """
+    compounded_growth = (1+r).prod()
+    n_periods = r.shape[0]
+    return compounded_growth**(periods_per_year/n_periods) - 1
+
+def annualized_vol(r, periods_per_year):
+    """
+    Annualizes the volatility of a set of returns
+    """
+    return r.std()*(periods_per_year**0.5)
+
+def sharpe_ratio(r, risk_free_rate, periods_per_year):
+    """
+    Computes the annualized sharpe ratio of a set of returns
+    """
+    #convert the annual risk_free_rate to per period
+    rf_per_period = (1+risk_free_rate)**(1/periods_per_year) - 1
+    excess_ret = r - rf_per_period
+    ann_excess_ret = annualized_ret(excess_ret, periods_per_year)
+    ann_excess_vol = annualized_vol(excess_ret, periods_per_year)
+    return ann_excess_ret / ann_excess_vol
+
+def portfolio_ret(weights, returns):
+    """
+    Computes the return on a portfolio from constituent returns and weights
+    weights are a numpy array or Nx1 matrix and returns are a numpy array or Nx1 matrix
+    """
+    return weights.T @ returns
+
+def portfolio_vol(weights, covmat):
+    """
+    Computes the vol of a portfolio from a covariance matrix and constituent weights
+    weights are a numpy array or N x 1 maxtrix and covmat is an N x N matrix
+    """
+    return (weights.T @ covmat @ weights)**0.5
+
+def plot_ef2(n_points, er, cov):
+    """
+    Plots the 2-asset efficient frontier
+    """
+    if er.shape[0] != 2 or er.shape[0] != 2:
+        raise ValueError("plot_ef2 can only plot 2-asset frontiers")
+    weights = [np.array([w, 1-w]) for w in np.linspace(0, 1, n_points)]
+    rets = [portfolio_ret(w, er) for w in weights]
+    vols = [portfolio_vol(w, cov) for w in weights]
+    ef = pd.DataFrame({
+        "Returns": rets,
+        "Volatility": vols
+    })
+    return ef.plot.line(x="Volatility", y="Returns", style=".-")
+
+from scipy.optimize import minimize
+
+def minimize_vol(target_return, er, cov):
+    """
+    Returns the optimal weights that achieve the target return
+    given a set of expected returns and a covariance matrix
+    """
+    n = er.shape[0]
+    init_guess = np.repeat(1/n, n)
+    bounds = ((0.0, 1.0),) * n # an N-tuple of 2-tuples!
+    # construct the constraints
+    weights_sum_to_1 = {'type': 'eq',
+                        'fun': lambda weights: np.sum(weights) - 1
+    }
+    return_is_target = {'type': 'eq',
+                        'args': (er,),
+                        'fun': lambda weights, er: target_return - portfolio_ret(weights,er)
+    }
+    weights = minimize(portfolio_vol, init_guess,
+                       args=(cov,), method='SLSQP',
+                       options={'disp': False},
+                       constraints=(weights_sum_to_1, return_is_target),
+                       bounds=bounds)
+    return weights.x
+
+def optimal_weights(n_points, er, cov):
+    """
+    uses the optimizer to get the optimal weights
+    """
+    target_rs = np.linspace(er.min(), er.max(), n_points)
+    weights = [minimize_vol(target_return, er, cov) for target_return in target_rs]
+    return weights
+
+def plot_ef(n_points, er, cov):
+    """
+    Plots the multi-asset efficient frontier
+    """
+    weights = optimal_weights(n_points, er, cov)
+    rets = [portfolio_ret(w, er) for w in weights]
+    vols = [portfolio_vol(w, cov) for w in weights]
+    ef = pd.DataFrame({
+        "Returns": rets,
+        "Volatility": vols
+    })
+    return ef.plot.line(x="Volatility", y="Returns", style='.-')
+
