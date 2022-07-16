@@ -216,7 +216,38 @@ def optimal_weights(n_points, er, cov):
     weights = [minimize_vol(target_return, er, cov) for target_return in target_rs]
     return weights
 
-def plot_ef(n_points, er, cov):
+def msr(riskfree_rate, er, cov):
+    """
+    Returns the weights of the portfolio that gives you the maximum sharpe ratio
+    given the riskfree rate and expected returns and a covariance matrix
+    """
+    n = er.shape[0]
+    init_guess = np.repeat(1/n, n)
+    bounds = ((0.0, 1.0), ) * n # a N-tuple of 2-tuples
+    # construct the constraints
+    weights_sum_to_1 = { 'type' : 'eq',
+                         'fun' : lambda weights: np.sum(weights) - 1
+                       }
+    
+    def neg_sharpe(weights, riskfree_rate, er, cov):
+        """
+        Returns the negative of the sharpe ratio
+        of the given portfolio
+        """
+        r = portfolio_ret(weights, er)
+        vol = portfolio_vol(weights, cov)
+        return -(r - riskfree_rate)/vol
+    
+    weights = minimize(neg_sharpe,
+                       init_guess,
+                       args=(riskfree_rate, er, cov),
+                       method='SLSQP',
+                       options={'disp':False},
+                       constraints=(weights_sum_to_1,),
+                       bounds=bounds)
+    return weights.x
+
+def plot_ef(n_points, er, cov, style='-', legend=False, show_cml=False, riskfree_rate=0):
     """
     Plots the multi-asset efficient frontier
     """
@@ -227,5 +258,17 @@ def plot_ef(n_points, er, cov):
         "Returns": rets,
         "Volatility": vols
     })
-    return ef.plot.line(x="Volatility", y="Returns", style='.-')
+    ax = ef.plot.line(x="Volatility", y="Returns", style='.-', legend=legend)
+    if show_cml:
+        ax.set_xlim(left = 0)
+        # get MSR
+        rf = 0.1
+        w_msr = msr(rf, er, cov)
+        r_msr = portfolio_ret(w_msr, er)
+        vol_msr = portfolio_vol(w_msr, cov)
+        # add CML
+        cml_x = [0, vol_msr]
+        cml_y = [rf, r_msr]
+        ax.plot(cml_x, cml_y, color='green', marker='o', linestyle='dashed', linewidth=2, markersize=12)
+    return ax
 
